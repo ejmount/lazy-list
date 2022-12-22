@@ -1,17 +1,29 @@
-use std::cell::RefCell;
+use once_cell::unsync::Lazy;
 use std::ops::Index;
 use std::rc::Rc;
 
+fn create_evaluator<T: 'static, I: Iterator<Item = T> + 'static>(
+    mut iter: I,
+) -> Box<dyn FnOnce() -> LazyListInner<T>> {
+    Box::new(move || match iter.next() {
+        Some(item) => {
+            let new_eval = Lazy::new(create_evaluator(iter));
+            let rc = Rc::new(new_eval);
+            LazyListInner::Evaluated(item, LazyList(rc))
+        }
+        None => LazyListInner::Terminated,
+    })
+}
+
 #[derive(Clone)]
-pub struct LazyList<T>(Rc<RefCell<LazyListInner<T>>>);
+pub struct LazyList<T>(Rc<Lazy<LazyListInner<T>, Box<dyn FnOnce() -> LazyListInner<T>>>>);
 
 enum LazyListInner<T> {
     Terminated,
-    Thunk(Box<dyn Iterator<Item = T>>),
     Evaluated(T, LazyList<T>),
 }
 
-impl<T> LazyList<T> {
+impl<T: 'static> LazyList<T> {
     pub fn new() -> LazyList<T> {
         Self::emplace(LazyListInner::Terminated)
     }
@@ -21,72 +33,55 @@ impl<T> LazyList<T> {
     }
 
     fn emplace(cell: LazyListInner<T>) -> Self {
-        LazyList(Rc::new(RefCell::new(cell)))
+        LazyList(Rc::new(Lazy::new(Box::new(move || cell))))
     }
 
-    fn expand(&self) {
-        let mut inner = self.0.borrow_mut();
-
-        let payload = std::mem::replace(&mut *inner, LazyListInner::Terminated);
-        *inner = if let LazyListInner::Thunk(mut thunk) = payload {
-            match thunk.next() {
-                Some(item) => {
-                    LazyListInner::Evaluated(item, Self::emplace(LazyListInner::Thunk(thunk)))
+    pub fn get(&self, idx: usize) -> Option<&T> {
+        match &**self.0 {
+            LazyListInner::Terminated => None,
+            LazyListInner::Evaluated(item, next) => {
+                if idx == 0 {
+                    Some(item)
+                } else {
+                    next.get(idx - 1)
                 }
-                None => LazyListInner::Terminated,
             }
-        } else {
-            payload
-        };
+        }
     }
 
     pub fn len(&self) -> usize {
         self.accum(0)
     }
 
-    pub fn get(&self, idx: usize) -> Option<&T> {
-        self.expand();
-        match &*self.0.borrow() {
-            LazyListInner::Evaluated(item, next) => {
-                if idx == 0 {
-                    let ptr = item as *const T;
-                    unsafe { Some(&*ptr) }
-                } else {
-                    let ptr = next as *const LazyList<T>;
-                    unsafe { (&*ptr).get(idx - 1) }
-                }
-            }
-            LazyListInner::Terminated => None,
-            LazyListInner::Thunk(_) => unreachable!(),
-        }
-    }
-
     fn accum(&self, count: usize) -> usize {
-        self.expand();
-        match &*self.0.borrow() {
+        match &**self.0 {
             LazyListInner::Terminated => count,
             LazyListInner::Evaluated(_, next) => next.accum(count + 1),
-            LazyListInner::Thunk(_) => unreachable!(),
         }
     }
 
-    pub fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self
+    pub fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> LazyList<T>
     where
         I: 'static,
     {
         let iter = iter.into_iter();
-        let contents = LazyListInner::Thunk(Box::new(iter));
-        LazyList::emplace(contents)
+        let contents = create_evaluator(iter);
+        let rc: Rc<Lazy<_, Box<dyn FnOnce() -> _>>> = Rc::new(Lazy::new(Box::new(contents)));
+        LazyList(rc)
+    }
+
+    pub fn iter<'a>(&'a self) -> Iter<'a, T> {
+        self.into_iter()
     }
 }
 
-impl<T> Index<usize> for LazyList<T> {
+impl<T: 'static> Index<usize> for LazyList<T> {
     type Output = T;
     fn index(&self, index: usize) -> &Self::Output {
         self.get(index).expect("Index out of range")
     }
 }
-/*
+
 impl<'a, T> IntoIterator for &'a LazyList<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
@@ -100,17 +95,15 @@ pub struct Iter<'a, T>(&'a LazyList<T>);
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.expand();
-        match &*self.0 .0.borrow() {
+        match &**self.0 .0 {
             LazyListInner::Evaluated(item, next) => {
                 self.0 = next;
-                Some(&*item)
+                Some(item)
             }
-            LazyListInner::Thunk(_) => unreachable!(),
             LazyListInner::Terminated => None,
         }
     }
-} */
+}
 
 #[cfg(test)]
 mod tests {
@@ -120,6 +113,17 @@ mod tests {
     fn len_count() {
         let list = LazyList::from_iter(0..10);
         assert_eq!(list.len(), 10);
+    }
+
+    #[test]
+    fn iter_test() {
+        let list = LazyList::from_iter(0..10);
+        let mut k = 0;
+        for &n in &list {
+            assert_eq!(n, k);
+            k += 1;
+        }
+        assert!(k == 10);
     }
 
     #[test]
