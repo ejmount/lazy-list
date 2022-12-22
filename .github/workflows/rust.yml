@@ -20,7 +20,6 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-    - uses: actions/checkout@v2
     - name: get kcov version
       uses: sudo-bot/action-kcov@latest
       with:
