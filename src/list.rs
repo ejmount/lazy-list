@@ -37,27 +37,11 @@ impl<T: 'static> LazyList<T> {
     }
 
     pub fn get(&self, idx: usize) -> Option<&T> {
-        match &**self.0 {
-            LazyListInner::Terminated => None,
-            LazyListInner::Evaluated(item, next) => {
-                if idx == 0 {
-                    Some(item)
-                } else {
-                    next.get(idx - 1)
-                }
-            }
-        }
+        self.iter().skip(idx).next()
     }
 
     pub fn len(&self) -> usize {
-        self.accum(0)
-    }
-
-    fn accum(&self, count: usize) -> usize {
-        match &**self.0 {
-            LazyListInner::Terminated => count,
-            LazyListInner::Evaluated(_, next) => next.accum(count + 1),
-        }
+        self.iter().count()
     }
 
     pub fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> LazyList<T>
@@ -124,6 +108,7 @@ mod tests {
             k += 1;
         }
         assert!(k == 10);
+        assert_eq!(list.get(5), Some(&5));
     }
 
     #[test]
