@@ -24,7 +24,7 @@ jobs:
     - name: get kcov version
       uses: sudo-bot/action-kcov@latest
       with:
-        cli-args: "--exclude-pattern=/.cargo,/usr/lib target/debug/*"
+        cli-args: "target/debug/*"
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3.1.0
       with:
