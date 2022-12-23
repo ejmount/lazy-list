@@ -23,7 +23,8 @@ jobs:
     - name: Install kcov
       run: sudo apt-get install -y kcov
     - name: Run kcov
-      run: kcov kcov_out target/debug/deps/
+      run: | 
+           for file in target/debug/lazy-list*; do [ -x "${file}" ] || continue; mkdir -p "target/cov/$(basename $file)"; kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3.1.0
       with:
