@@ -112,9 +112,15 @@ mod tests {
     }
 
     #[test]
-    fn blank() {
+    fn singleton() {
         let list = LazyList::new();
         let list = list.prepend(0);
         assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn empty() {
+        let list: LazyList<u32> = LazyList::from_iter(std::iter::empty());
+        assert_eq!(list.len(), 0);
     }
 }
