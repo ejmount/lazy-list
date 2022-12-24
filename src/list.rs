@@ -163,25 +163,25 @@ mod tests {
 
     #[test]
     fn primes() {
-        let primes = LazyList::new_cyclic(|l| {
-            match l.len() {
-                0 => 2,
-                1 => 3,
-                _ => {
-                    let mut n = l.iter().last().cloned().unwrap();
-                    'candidate: loop {
-                        for factor in l.iter().cloned() {
-                            if n % factor == 0 {
-                                n += 2;
-                                continue 'candidate;
-                            }
+        let primes = LazyList::new_cyclic(|l| match l.len() {
+            0 => Some(2),
+            1 => Some(3),
+            100 => None, // Make sure termination works for cyclic lists
+            _ => {
+                let mut n = l.iter().cloned().last().unwrap();
+                'candidate: loop {
+                    for factor in l.iter().cloned() {
+                        if n % factor == 0 {
+                            n += 2;
+                            continue 'candidate;
                         }
-                        break n;
                     }
+                    break n;
                 }
+                .into()
             }
-            .into()
         });
-        assert_eq!(primes.get(99).cloned(), Some(541));
+        // Check the 100th prime
+        assert_eq!(primes.iter().last().unwrap(), &541);
     }
 }
