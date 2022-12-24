@@ -1,4 +1,4 @@
-use once_cell::unsync::Lazy;
+use crate::lazy::Lazy;
 use std::ops::Index;
 use std::rc::Rc;
 
@@ -84,11 +84,11 @@ impl<T: 'static> LazyList<T> {
     pub fn from_iter<I: IntoIterator<Item = T> + 'static>(iter: I) -> LazyList<T> {
         let iter = iter.into_iter();
         let contents = create_evaluator(iter);
-        let rc: Rc<Lazy<_, Box<dyn FnOnce() -> _>>> = Rc::new(Lazy::new(Box::new(contents)));
+        let rc: Rc<Lazy<_, Box<dyn FnOnce() -> _>>> = Rc::new(Lazy::new(contents));
         LazyList(rc)
     }
 
-    pub fn iter<'a>(&'a self) -> Iter<'a, T> {
+    pub fn iter(&self) -> Iter<T> {
         self.into_iter()
     }
 }
@@ -119,12 +119,12 @@ pub struct Iter<'a, T>(&'a LazyList<T>);
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
-        match &**self.0 .0 {
-            LazyListInner::Evaluated(item, next) => {
+        match Lazy::force(&*self.0 .0) {
+            Some(LazyListInner::Evaluated(item, next)) => {
                 self.0 = next;
                 Some(item)
             }
-            LazyListInner::Terminated => None,
+            _ => None,
         }
     }
 }
@@ -165,16 +165,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn primes() {
-        let list = LazyList::new_cyclic(|l| {
+        let primes = LazyList::new_cyclic(|l| {
             match l.len() {
                 0 => 2,
                 1 => 3,
-                _ => unimplemented!(),
+                _ => {
+                    let last = l.iter().last().unwrap();
+                    let mut n = *last;
+                    'candidate: loop {
+                        for factor in l.iter().cloned() {
+                            if n % factor == 0 {
+                                n += 2;
+                                continue 'candidate;
+                            }
+                        }
+                        break n;
+                    }
+                }
             }
             .into()
         });
-        assert_eq!(list.get(1), Some(&3));
+        assert_eq!(primes.get(99).cloned(), Some(541));
     }
 }
