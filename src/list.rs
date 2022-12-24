@@ -15,13 +15,10 @@ fn create_evaluator<T: 'static, I: Iterator<Item = T> + 'static>(
     })
 }
 
-fn create_cyclic_evaluator<T: 'static, F: 'static>(
+fn create_cyclic_evaluator<T: 'static, F: FnMut(&LazyList<T>) -> Option<T> + 'static>(
     mut f: F,
     node: LazyList<T>,
-) -> impl FnOnce() -> LazyListInner<T>
-where
-    F: FnMut(&LazyList<T>) -> Option<T>,
-{
+) -> impl FnOnce() -> LazyListInner<T> {
     move || match f(&node) {
         Some(item) => {
             let inner_node = LazyList(Rc::new(Lazy::new(Box::new(create_cyclic_evaluator(
@@ -33,8 +30,9 @@ where
     }
 }
 
+type Thunk<T> = Lazy<LazyListInner<T>, Box<dyn FnOnce() -> LazyListInner<T>>>;
 #[derive(Clone)]
-pub struct LazyList<T>(Rc<Lazy<LazyListInner<T>, Box<dyn FnOnce() -> LazyListInner<T>>>>);
+pub struct LazyList<T>(Rc<Thunk<T>>);
 
 enum LazyListInner<T> {
     Terminated,
@@ -46,6 +44,7 @@ impl<T: 'static> LazyList<T> {
         Self::emplace(LazyListInner::Terminated)
     }
 
+    #[must_use]
     pub fn prepend(self, val: T) -> LazyList<T> {
         Self::emplace(LazyListInner::Evaluated(val, self))
     }
@@ -71,17 +70,18 @@ impl<T: 'static> LazyList<T> {
     }
 
     pub fn get(&self, idx: usize) -> Option<&T> {
-        self.iter().skip(idx).next()
+        self.iter().nth(idx)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(Lazy::force(&*self.0), Some(LazyListInner::Terminated))
     }
 
     pub fn len(&self) -> usize {
         self.iter().count()
     }
 
-    pub fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> LazyList<T>
-    where
-        I: 'static,
-    {
+    pub fn from_iter<I: IntoIterator<Item = T> + 'static>(iter: I) -> LazyList<T> {
         let iter = iter.into_iter();
         let contents = create_evaluator(iter);
         let rc: Rc<Lazy<_, Box<dyn FnOnce() -> _>>> = Rc::new(Lazy::new(Box::new(contents)));
@@ -90,6 +90,12 @@ impl<T: 'static> LazyList<T> {
 
     pub fn iter<'a>(&'a self) -> Iter<'a, T> {
         self.into_iter()
+    }
+}
+
+impl<T: 'static> Default for LazyList<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
