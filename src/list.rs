@@ -49,10 +49,7 @@ impl<T: 'static> LazyList<T> {
         Self::emplace(LazyListInner::Evaluated(val, self))
     }
 
-    pub fn new_cyclic<F: 'static>(f: F) -> LazyList<T>
-    where
-        F: FnMut(&LazyList<T>) -> Option<T>,
-    {
+    pub fn new_cyclic<F: FnMut(&LazyList<T>) -> Option<T> + 'static>(f: F) -> LazyList<T> {
         let rc = Rc::new_cyclic(|w| {
             let w = w.clone();
             let b = Box::new(move || {
@@ -171,8 +168,7 @@ mod tests {
                 0 => 2,
                 1 => 3,
                 _ => {
-                    let last = l.iter().last().unwrap();
-                    let mut n = *last;
+                    let mut n = l.iter().last().cloned().unwrap();
                     'candidate: loop {
                         for factor in l.iter().cloned() {
                             if n % factor == 0 {

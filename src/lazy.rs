@@ -82,6 +82,6 @@ struct Canary<'a>(&'a AtomicBool);
 
 impl<'a> Drop for Canary<'a> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release)
+        self.0.store(false, Ordering::Release);
     }
 }
