@@ -15,6 +15,24 @@ fn create_evaluator<T: 'static, I: Iterator<Item = T> + 'static>(
     })
 }
 
+fn create_cyclic_evaluator<T: 'static, F: 'static>(
+    mut f: F,
+    node: LazyList<T>,
+) -> impl FnOnce() -> LazyListInner<T>
+where
+    F: FnMut(&LazyList<T>) -> Option<T>,
+{
+    move || match f(&node) {
+        Some(item) => {
+            let inner_node = LazyList(Rc::new(Lazy::new(Box::new(create_cyclic_evaluator(
+                f, node,
+            )))));
+            LazyListInner::Evaluated(item, inner_node)
+        }
+        None => LazyListInner::Terminated,
+    }
+}
+
 #[derive(Clone)]
 pub struct LazyList<T>(Rc<Lazy<LazyListInner<T>, Box<dyn FnOnce() -> LazyListInner<T>>>>);
 
@@ -30,6 +48,22 @@ impl<T: 'static> LazyList<T> {
 
     pub fn prepend(self, val: T) -> LazyList<T> {
         Self::emplace(LazyListInner::Evaluated(val, self))
+    }
+
+    pub fn new_cyclic<F: 'static>(f: F) -> LazyList<T>
+    where
+        F: FnMut(&LazyList<T>) -> Option<T>,
+    {
+        let rc = Rc::new_cyclic(|w| {
+            let w = w.clone();
+            let b = Box::new(move || {
+                let Some(s) = w.upgrade() else { unimplemented!() };
+                let node = LazyList(s);
+                create_cyclic_evaluator(f, node)()
+            });
+            Lazy::new(b)
+        });
+        LazyList(rc)
     }
 
     fn emplace(cell: LazyListInner<T>) -> Self {
@@ -122,5 +156,19 @@ mod tests {
     fn empty() {
         let list: LazyList<u32> = LazyList::from_iter(std::iter::empty());
         assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn primes() {
+        let list = LazyList::new_cyclic(|l| {
+            match l.len() {
+                0 => 2,
+                1 => 3,
+                _ => unimplemented!(),
+            }
+            .into()
+        });
+        assert_eq!(list.get(1), Some(&3));
     }
 }
